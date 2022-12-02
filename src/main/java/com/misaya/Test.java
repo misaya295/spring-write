@@ -1,5 +1,6 @@
 package com.misaya;
 
+import com.misaya.service.UserService;
 import com.spring.MisayaApplicationContext;
 
 public class Test {
@@ -8,7 +9,8 @@ public class Test {
 
 
         MisayaApplicationContext applicationContext = new MisayaApplicationContext(AppConfig.class);
+        UserService userService = (UserService) applicationContext.getBean("userService");
+        userService.test();
 
-        Object userservice = applicationContext.getBean("userservice");
     }
 }
