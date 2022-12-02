@@ -1,11 +1,12 @@
 package com.spring;
 
+import com.misaya.service.BeanNameAware;
+
 import java.io.File;
-import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 public class MisayaApplicationContext {
 
@@ -20,7 +21,67 @@ public class MisayaApplicationContext {
         this.configClass = configClass;
 
         //解析配置类
-        //componentScan注解---》扫描路径---》扫描
+        //componentScan注解---》扫描路径---》扫描 -->>Beandefinition--->BeandefinitionMap
+         scan(configClass);
+
+        beanDefinitionMap.entrySet().forEach(
+                x -> {
+                    String beanName = x.getKey();
+                    BeanDefinition value = x.getValue();
+                    if (value.getScope().equals("singleton")) {
+                        //单例bean
+                        Object bean = createBean(beanName,value);
+                        singletonObject.put(beanName, bean);
+                    }
+
+                }
+        );
+
+
+    }
+
+    public Object createBean(String beanName,BeanDefinition beanDefinition)  {
+
+        Class clazz = beanDefinition.getClazz();
+        try {
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+
+            //依赖注入
+            for (Field declaredField : clazz.getDeclaredFields()) {
+                if (declaredField.isAnnotationPresent(Autowired.class)) {
+
+                    //属性赋值
+                    Object bean = getBean(declaredField.getName());
+                    declaredField.setAccessible(true);
+                    declaredField.set(instance, bean);
+
+                }
+            }
+
+
+            //Aware回调
+            if (instance instanceof BeanNameAware) {
+
+                ((BeanNameAware) instance).setBeanName(beanName);
+            }
+
+            //初始化
+
+
+
+            return instance;
+        } catch (InstantiationException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        } catch (InvocationTargetException e) {
+            throw new RuntimeException(e);
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void scan(Class configClass) throws ClassNotFoundException {
         ComponentScan declaredAnnotation = (ComponentScan) configClass.getDeclaredAnnotation(ComponentScan.class);
         String value = declaredAnnotation.value();
         System.out.println(value);
@@ -41,7 +102,7 @@ public class MisayaApplicationContext {
                 className = className.replace("/", ".");
 
 
-                Class<?> aClass = classLoader.loadClass("com.misaya.service.UserService");
+                Class<?> aClass = classLoader.loadClass(className);
                 if (aClass.isAnnotationPresent(Component.class)) {
                     //当前这个类是一个bean
 
@@ -50,6 +111,7 @@ public class MisayaApplicationContext {
                     String BeanName = component.value();
 
                     BeanDefinition beanDefinition = new BeanDefinition();
+                    beanDefinition.setClazz(aClass);
                     if (aClass.isAnnotationPresent(Scope.class)) {
                         Scope scope = aClass.getDeclaredAnnotation(Scope.class);
                         beanDefinition.setScope(scope.value());
@@ -67,8 +129,6 @@ public class MisayaApplicationContext {
 
 
         }
-
-
     }
 
     public Object getBean(String beanName) {
@@ -81,6 +141,8 @@ public class MisayaApplicationContext {
                 return o;
             } else {
                 // 创建bean对像
+                Object bean = createBean(beanName,beanDefinition);
+                return bean;
 
             }
 
@@ -89,6 +151,6 @@ public class MisayaApplicationContext {
             //不存在对应的bean
             throw new NullPointerException();
         }
-        return null;
+
     }
 }
