@@ -1,11 +1,15 @@
 package com.spring;
 
 import com.misaya.service.BeanNameAware;
+import com.misaya.service.BeanPostProcessor;
+import com.misaya.service.InitializingBean;
 
 import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class MisayaApplicationContext {
@@ -17,12 +21,14 @@ public class MisayaApplicationContext {
 
     private ConcurrentHashMap<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
 
+    private List<BeanPostProcessor> BeanPostProcessorList = new ArrayList<>();
+
     public MisayaApplicationContext(Class configClass) throws ClassNotFoundException {
         this.configClass = configClass;
 
         //解析配置类
         //componentScan注解---》扫描路径---》扫描 -->>Beandefinition--->BeandefinitionMap
-         scan(configClass);
+        scan(configClass);
 
         beanDefinitionMap.entrySet().forEach(
                 x -> {
@@ -30,7 +36,7 @@ public class MisayaApplicationContext {
                     BeanDefinition value = x.getValue();
                     if (value.getScope().equals("singleton")) {
                         //单例bean
-                        Object bean = createBean(beanName,value);
+                        Object bean = createBean(beanName, value);
                         singletonObject.put(beanName, bean);
                     }
 
@@ -40,7 +46,7 @@ public class MisayaApplicationContext {
 
     }
 
-    public Object createBean(String beanName,BeanDefinition beanDefinition)  {
+    public Object createBean(String beanName, BeanDefinition beanDefinition) {
 
         Class clazz = beanDefinition.getClazz();
         try {
@@ -63,10 +69,27 @@ public class MisayaApplicationContext {
             if (instance instanceof BeanNameAware) {
 
                 ((BeanNameAware) instance).setBeanName(beanName);
+
+            }
+            for (BeanPostProcessor beanPostProcessor : BeanPostProcessorList) {
+                instance = beanPostProcessor.postProcessBeforInitialization(instance, beanName);
             }
 
             //初始化
+            if (instance instanceof InitializingBean) {
 
+                try {
+                    ((InitializingBean) instance).afterPropertiesSet();
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+
+            }
+
+            //BeanPostProcess
+            for (BeanPostProcessor beanPostProcessor : BeanPostProcessorList) {
+                instance = beanPostProcessor.postProcessAfterInitialization(instance, beanName);
+            }
 
 
             return instance;
@@ -104,7 +127,25 @@ public class MisayaApplicationContext {
 
                 Class<?> aClass = classLoader.loadClass(className);
                 if (aClass.isAnnotationPresent(Component.class)) {
-                    //当前这个类是一个bean
+                    //
+                    //表示当前这个类是一个bean
+
+                    //解析类---> Beandefinition
+
+                    if (BeanPostProcessor.class.isAssignableFrom(aClass)) {
+                        try {
+                            BeanPostProcessor instance = (BeanPostProcessor) aClass.getDeclaredConstructor().newInstance();
+                            BeanPostProcessorList.add(instance);
+                        } catch (InstantiationException e) {
+                            throw new RuntimeException(e);
+                        } catch (IllegalAccessException e) {
+                            throw new RuntimeException(e);
+                        } catch (InvocationTargetException e) {
+                            throw new RuntimeException(e);
+                        } catch (NoSuchMethodException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
 
                     //解析类，判断当前bean是单例bean，还是prototype的bean
                     Component component = aClass.getDeclaredAnnotation(Component.class);
@@ -141,7 +182,7 @@ public class MisayaApplicationContext {
                 return o;
             } else {
                 // 创建bean对像
-                Object bean = createBean(beanName,beanDefinition);
+                Object bean = createBean(beanName, beanDefinition);
                 return bean;
 
             }
